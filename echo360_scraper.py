@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 import dotenv
 import os
@@ -89,13 +90,21 @@ def get_courses(driver: webdriver.Chrome, courses_url=COURSES_URL) -> list[dict[
 
     return courses
 
+def await_clickable(by: str, value: str, driver, timeout: int = 2):
+    try:
+        return WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable((by, value))
+        )
+    except TimeoutException:
+        return None
+
 def scrape_course(course_url: str, driver: webdriver.Chrome):
     driver.get(course_url)
-    sessions = WebDriverWait(driver, 10).until(
+    sessions = WebDriverWait(driver, 2).until(
         EC.presence_of_all_elements_located((By.CLASS_NAME, "class-row"))
     )
 
-    course_data = []
+    lecture_data = []
     for session in sessions:
         title = session.find_element(By.CSS_SELECTOR, 'div[role="title"].title').text.strip()
         date_str = session.find_element(By.CLASS_NAME, "date").text.strip()
@@ -106,42 +115,60 @@ def scrape_course(course_url: str, driver: webdriver.Chrome):
         start_time = datetime.strptime(start_time_str, "%I:%M%p").time()
         end_time = datetime.strptime(end_time_str, "%I:%M%p").time()
 
-        # Open video menu
-        WebDriverWait(session, 10).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, 'div.courseMediaIndicator[data-test-id="open-class-video-menu"]')
-            )
-        ).click()
+        # Open video menu. Note: Not all rows contain this button
+        try:
+            await_clickable(By.CSS_SELECTOR, 'div.courseMediaIndicator[data-test-id="open-class-video-menu"]', session).click()
+        except AttributeError:
+            continue
 
         # Click "Download Original"
-        WebDriverWait(session, 10).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]')
-            )
-        ).click()
+        await_clickable(By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]', session).click()
 
-        # Click on Video 1 HD Download button
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, 'button[data-test-id="video1-hd-download"]')
-            )
-        ).click()
+        # Click on Video 1 HD Download button (download video)
+        await_clickable(By.CSS_SELECTOR, 'button[data-test-id="video1-hd-download"]', driver).click()
+
+        dialog = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-test-component="DownloadMedia"]'))
+        )
+
+        video_sizes = []
+        sources = dialog.find_elements(By.CSS_SELECTOR, 'div[data-test-component="DownloadRow"]')
+        for source in sources:
+            source_element = source.find_element(By.CSS_SELECTOR, 'div[data-test-component="PosterOverlay"]')
+            source_num = int(source_element.text.strip()[-1])
+
+            quality_options = source.find_elements(By.CSS_SELECTOR, 'div[data-test-component="DownloadFile"]')
+            for option in quality_options:
+                button = option.find_element(By.TAG_NAME, "button")
+                quality = button.find_element(By.CSS_SELECTOR, 'span.sc-htoDjs').text
+
+                try:
+                    aria_label = button.get_attribute('aria-label')
+                    size_match = re.search(r'(\d+\.?\d*)\s?(MB|GB)', aria_label)
+                except:
+                    size_text = option.text
+                    size_match = re.search(r'\((\d+\.?\d*)(MB|GB)\)', size_text)
+
+                size = f"{size_match.group(1)} {size_match.group(2)}" if size_match else "Unknown"
+
+                video_sizes.append({
+                    "video_source_num": source_num,
+                    "quality": quality,
+                    "size": size
+                })
 
         # Close "Download" dialog box
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, 'div[data-test-component="DownloadMedia"] button[aria-label="Close"]')
-            )
-        ).click()
+        await_clickable(By.CSS_SELECTOR, 'div[data-test-component="DownloadMedia"] button[aria-label="Close"]', driver).click()
 
-        course_data.append({
+        lecture_data.append({
             "title": title,
             "date": date_obj,
             "start_time": start_time,
             "end_time": end_time,
+            "video_sizes": video_sizes,
         })
 
-    return course_data
+    return lecture_data
 
 def main():
     options = webdriver.ChromeOptions()
