@@ -6,8 +6,6 @@ from selenium.webdriver.support import expected_conditions as EC
 
 import dotenv
 import os
-import time
-import pickle
 import re
 import json
 
@@ -15,22 +13,8 @@ BASE_URL = "https://echo360.net.au"
 MAIN_LOGIN_URL = "https://login.echo360.net.au/login"
 ALTERNATE_LOGIN_URL = f"{BASE_URL}/directLogin"
 COURSES_URL = f"{BASE_URL}/courses"
-COOKIES_FILENAME = "cookies.pkl"
 
 dotenv.load_dotenv()
-
-def save_cookies(driver: webdriver.Chrome, filename=COOKIES_FILENAME):
-    cookies = driver.get_cookies()
-    with open(filename, "wb") as file:
-        pickle.dump(cookies, file)
-
-def load_cookies(driver: webdriver.Chrome, filename=COOKIES_FILENAME):
-    if os.path.exists(filename):
-        driver.get(BASE_URL)
-        with open(filename, "rb") as file:
-            cookies = pickle.load(file)
-            for cookie in cookies:
-                driver.add_cookie(cookie)
 
 def login(driver: webdriver.Chrome, email=os.getenv("EMAIL"), region="echo360.org.au", password=os.getenv("PASSWORD"), login_url=ALTERNATE_LOGIN_URL):
     driver.get(login_url)
@@ -106,14 +90,8 @@ def get_courses(driver: webdriver.Chrome, courses_url=COURSES_URL):
 
 def main():
     driver = webdriver.Chrome()
-    # load_cookies(driver)
 
-    driver.get(COURSES_URL)
-
-    if MAIN_LOGIN_URL in driver.current_url:
-        login(driver)
-        # save_cookies(driver)
-
+    login(driver)
     get_courses(driver)
 
     driver.quit()
