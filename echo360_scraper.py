@@ -20,6 +20,7 @@ LOGIN_ALTERNATE_URL = f"{BASE_URL}/directLogin"
 COURSES_URL = f"{BASE_URL}/courses"
 CDN_BASE_URL = "https://content.echo360.net.au"
 DOWNLOADS_FOLDER_NAME = "downloads"
+TARGET_COURSE_CODES = ["COMP6443"]
 
 dotenv.load_dotenv()
 
@@ -47,6 +48,13 @@ class Video:
     def sha256(self) -> str:
         return self._sha256
 
+    def generate_video_filename(self, extension: str = "mp4") -> str:
+        course_codes = '-'.join(self.lecture.course.course_codes)
+        date_formatted = f"{self.lecture.date.year}-{self.lecture.date.month}-{self.lecture.date.day}"
+        time_formatted = f"{self.lecture.start_time.hour}-{self.lecture.start_time.minute}"
+        date_and_time = f"{date_formatted}-{time_formatted}"
+        return f"{course_codes}_Lecture-{self.lecture.lecture_num}_{date_and_time}_Source-{self.source_num}_Quality-{self.quality}.{extension}"
+
     def calculate_sha256_hash(self, file_path: str):
         self.file_path = file_path
         sha256_hash = hashlib.sha256()
@@ -65,7 +73,6 @@ class Video:
             "file_path": str(self.file_path) if self.file_path else None
         }
 
-
 class Lecture:
     def __init__(self, course: "Course", title: str, date: datetime.date,
                  start_time: datetime.time, end_time: datetime.time,
@@ -80,10 +87,12 @@ class Lecture:
         for video in self.videos:
             video.lecture = self
 
-    def generate_video_filename(self, extension: str = "mp4") -> str:
-        course_codes = '-'.join(self.course.course_codes)
-        date_formatted = self.date.strftime("%d-%m-%Y")
-        return f"{course_codes}_Lecture-{self.lecture_num}_{date_formatted}.{extension}"
+    # def generate_video_filename(self, extension: str = "mp4") -> str:
+    #     course_codes = '-'.join(self.course.course_codes)
+    #     date_formatted = f"{self.date.year}-{self.date.month}-{self.date.day}"
+    #     time_formatted = f"{self.start_time.hour}-{self.start_time.minute}"
+    #     date_and_time = f"{date_formatted}-{time_formatted}"
+    #     return f"{course_codes}_Lecture-{self.lecture_num}_{date_and_time}.{extension}"
 
     def to_dict(self) -> dict:
         return {
@@ -190,6 +199,8 @@ class Course:
                 lecture_num=lecture_num,
                 videos=videos,
             ))
+
+        driver.get(COURSES_URL)
 
     def download_video_and_get_url(self, driver: webdriver.Chrome, download_button) -> str:
         driver.get_log("performance")
@@ -322,16 +333,21 @@ def main():
     login(driver)
     courses = get_courses(driver)
 
-    # TODO: Hard-coded
-    target_course = courses[0]
-    target_course.scrape_course(driver)
+    target_courses: list[Course] = []
+    for course in courses:
+        if any(code in course.course_codes for code in TARGET_COURSE_CODES):
+            target_courses.append(course)
+
+    for target_course in target_courses:
+        target_course.scrape_course(driver)
 
     driver.quit()
 
-    for lecture in target_course.lectures:
-        for video in lecture.videos:
-            if video.url:
-                download_video(video, lecture.generate_video_filename())
+    for target_course in target_courses:
+        for lecture in target_course.lectures:
+            for video in lecture.videos:
+                if video.url:
+                    download_video(video, video.generate_video_filename())
 
 if __name__ == "__main__":
     main()
