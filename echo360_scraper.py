@@ -10,6 +10,8 @@ import os
 import re
 import json
 from datetime import datetime
+import requests
+from tqdm import tqdm
 
 BASE_URL = "https://echo360.net.au"
 LOGIN_MAIN_URL = "https://login.echo360.net.au/login"
@@ -22,16 +24,24 @@ dotenv.load_dotenv()
 class Lecture:
     def __init__(self, course: "Course", title: str, date: datetime.date,
                  start_time: datetime.time, end_time: datetime.time,
-                 videos: list[dict]):
+                 lecture_num: int, videos: list[dict]):
         self.course = course
         self.title = title
         self.date = date
         self.start_time = start_time
         self.end_time = end_time
+        self.lecture_num = lecture_num
         self.videos = videos
+
+    def generate_video_filename(self, extension: str = "mp4") -> str:
+        course_codes = '-'.join(self.course.course_codes)
+        date_formatted = self.date.strftime("%d-%m-%Y")
+        return f"{course_codes}_Lecture-{self.lecture_num}_{date_formatted}.{extension}"
 
     def to_dict(self) -> dict:
         return {
+            "course": self.course,
+            "lecture_num": self.lecture_num,
             "title": self.title,
             "date": self.date,
             "start_time": self.start_time,
@@ -40,7 +50,8 @@ class Lecture:
         }
 
 class Course:
-    def __init__(self, course_codes: list[str], course_name: str, year: str, term: str, lecture_count: str, url: str):
+    def __init__(self, course_codes: list[str], course_name: str, year: int,
+                 term: int, lecture_count: int, url: str):
         self.course_codes = course_codes
         self.course_name = course_name
         self.year = year
@@ -52,6 +63,8 @@ class Course:
     def add_lecture(self, lecture: Lecture):
         if lecture.course is not self:
             raise ValueError("Lecture belongs to another course")
+        if len(self.lectures) >= int(self.lecture_count):
+            raise ValueError(f"Cannot add more lectures than {self.lecture_count = }")
         self.lectures.append(lecture)
 
     def to_dict(self) -> dict:
@@ -108,13 +121,10 @@ class Course:
                     size = f"{size_match.group(1)} {size_match.group(2)}"
 
                     download_button = self._await_clickable(By.CSS_SELECTOR, f'button[data-test-id="video{str(source_num)}-{quality.lower()}-download"]', download_dialog)
-                    if source_num == 1 and quality == "HD":
-                        downloaded_video_url = self.download_video_and_get_url(driver, download_button)
-                    else:
-                        downloaded_video_url = None
+                    downloaded_video_url = self.download_video_and_get_url(driver, download_button) if source_num == 1 and quality == "HD" else None
 
                     videos.append({
-                        "video_source_num": source_num,
+                        "source_num": source_num,
                         "quality": quality,
                         "size": size,
                         "downloaded_video_url": downloaded_video_url,
@@ -123,12 +133,14 @@ class Course:
             # Close "Download" dialog box
             self._await_clickable(By.CSS_SELECTOR, 'div[data-test-component="DownloadMedia"] button[aria-label="Close"]', driver).click()
 
+            lecture_num = len(self.lectures) + 1
             self.add_lecture(Lecture(
                 course=self,
                 title=title,
                 date=date_obj,
                 start_time=start_time,
                 end_time=end_time,
+                lecture_num=lecture_num,
                 videos=videos,
             ))
 
@@ -228,18 +240,50 @@ def get_courses(driver: webdriver.Chrome) -> list[Course]:
 
     return courses
 
+def download_video(url, filename):
+    response = requests.get(url, stream=True)
+    file_size = int(response.headers.get("content-length", 0))
+    progress = tqdm(total=file_size, unit='B', unit_scale=True, desc=filename)
+
+    download_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+    os.makedirs(download_dir, exist_ok=True)
+    file_path = os.path.join(download_dir, filename)
+
+    chunk_size = 1024 * 1024  # 1MB
+    with open(file_path, "wb") as file:
+        for chunk in response.iter_content(chunk_size=chunk_size):
+            if chunk:
+                file.write(chunk)
+                progress.update(len(chunk))
+
+    progress.close()
+
 def main():
     chrome_options = webdriver.ChromeOptions()
     chrome_options.enable_downloads = True
     chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
+    chrome_options.add_experimental_option("prefs", {
+        "download.default_directory": os.path.abspath("chrome_downloads"),
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True
+    })
 
     driver = webdriver.Chrome(chrome_options)
 
     login(driver)
     courses = get_courses(driver)
-    courses[0].scrape_course(driver)
+
+    # TODO: Hard-coded
+    target_course = courses[0]
+    target_course.scrape_course(driver)
 
     driver.quit()
+
+    lectures = target_course.lectures
+    for lecture in lectures:
+        if downloaded_video_url := lecture.videos[0].get("downloaded_video_url"):
+            download_video(downloaded_video_url, lecture.generate_video_filename())
 
 if __name__ == "__main__":
     main()
