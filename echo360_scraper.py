@@ -12,19 +12,54 @@ import json
 from datetime import datetime
 import requests
 from tqdm import tqdm
+import hashlib
 
 BASE_URL = "https://echo360.net.au"
 LOGIN_MAIN_URL = "https://login.echo360.net.au/login"
 LOGIN_ALTERNATE_URL = f"{BASE_URL}/directLogin"
 COURSES_URL = f"{BASE_URL}/courses"
 CDN_BASE_URL = "https://content.echo360.net.au"
+DOWNLOADS_FOLDER_NAME = "downloads"
 
 dotenv.load_dotenv()
+
+class Video:
+    def __init__(self, source_num: int, quality: str, size: str, url: str = None):
+        # self.lecture = lecture
+        self.source_num = source_num
+        self.quality = quality
+        self.size = size
+        self.url = url
+        self.file_path = None
+        self._sha256 = None
+
+    @property
+    def sha256(self) -> str:
+        return self._sha256
+
+    def calculate_sha256_hash(self, file_path: str):
+        self.file_path = file_path
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        self._sha256 = sha256_hash.hexdigest()
+
+    def to_dict(self) -> dict:
+        return {
+            "source_num": self.source_num,
+            "quality": self.quality,
+            "size": self.size,
+            "downloaded_url": self.url,
+            "sha256": self._sha256,
+            "file_path": str(self.file_path) if self.file_path else None
+        }
+
 
 class Lecture:
     def __init__(self, course: "Course", title: str, date: datetime.date,
                  start_time: datetime.time, end_time: datetime.time,
-                 lecture_num: int, videos: list[dict]):
+                 lecture_num: int, videos: list[Video]):
         self.course = course
         self.title = title
         self.date = date
@@ -123,12 +158,12 @@ class Course:
                     download_button = self._await_clickable(By.CSS_SELECTOR, f'button[data-test-id="video{str(source_num)}-{quality.lower()}-download"]', download_dialog)
                     downloaded_video_url = self.download_video_and_get_url(driver, download_button) if source_num == 1 and quality == "HD" else None
 
-                    videos.append({
-                        "source_num": source_num,
-                        "quality": quality,
-                        "size": size,
-                        "downloaded_video_url": downloaded_video_url,
-                    })
+                    videos.append(Video(
+                        source_num=source_num,
+                        quality=quality,
+                        size=size,
+                        url=downloaded_video_url
+                    ))
 
             # Close "Download" dialog box
             self._await_clickable(By.CSS_SELECTOR, 'div[data-test-component="DownloadMedia"] button[aria-label="Close"]', driver).click()
@@ -240,16 +275,16 @@ def get_courses(driver: webdriver.Chrome) -> list[Course]:
 
     return courses
 
-def download_video(url, filename):
-    response = requests.get(url, stream=True)
+def download_video(video: Video, filename: str):
+    response = requests.get(video.url, stream=True)
     file_size = int(response.headers.get("content-length", 0))
     progress = tqdm(total=file_size, unit='B', unit_scale=True, desc=filename)
 
-    download_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+    download_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), DOWNLOADS_FOLDER_NAME)
     os.makedirs(download_dir, exist_ok=True)
     file_path = os.path.join(download_dir, filename)
 
-    chunk_size = 1024 * 1024  # 1MB
+    chunk_size = 1024 * 1024 # 1MB
     with open(file_path, "wb") as file:
         for chunk in response.iter_content(chunk_size=chunk_size):
             if chunk:
@@ -257,6 +292,7 @@ def download_video(url, filename):
                 progress.update(len(chunk))
 
     progress.close()
+    video.calculate_sha256_hash(file_path)
 
 def main():
     chrome_options = webdriver.ChromeOptions()
@@ -280,10 +316,10 @@ def main():
 
     driver.quit()
 
-    lectures = target_course.lectures
-    for lecture in lectures:
-        if downloaded_video_url := lecture.videos[0].get("downloaded_video_url"):
-            download_video(downloaded_video_url, lecture.generate_video_filename())
+    for lecture in target_course.lectures:
+        for video in lecture.videos:
+            if video.url:
+                download_video(video, lecture.generate_video_filename())
 
 if __name__ == "__main__":
     main()
