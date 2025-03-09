@@ -82,15 +82,15 @@ class Course:
             end_time = datetime.strptime(end_time_str, "%I:%M%p").time()
 
             try:
-                await_clickable(By.CSS_SELECTOR, 'div.courseMediaIndicator[data-test-id="open-class-video-menu"]', session).click()
+                self._await_clickable(By.CSS_SELECTOR, 'div.courseMediaIndicator[data-test-id="open-class-video-menu"]', session).click()
             except AttributeError:
                 continue
 
             # Click download original
-            await_clickable(By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]', session).click()
+            self._await_clickable(By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]', session).click()
 
             # Wait for "Download" dialog box to load
-            download_dialog = await_clickable(By.ID, "download-tabs", driver)
+            download_dialog = self._await_clickable(By.ID, "download-tabs", driver)
 
             videos = []
             sources = download_dialog.find_elements(By.CSS_SELECTOR, 'div[data-test-component="DownloadRow"]')
@@ -107,7 +107,7 @@ class Course:
                     size_match = re.search(r'(\d+\.?\d*)\s?(MB|GB)', button_aria_label)
                     size = f"{size_match.group(1)} {size_match.group(2)}"
 
-                    download_button = await_clickable(By.CSS_SELECTOR, f'button[data-test-id="video{str(source_num)}-{quality.lower()}-download"]', download_dialog)
+                    download_button = self._await_clickable(By.CSS_SELECTOR, f'button[data-test-id="video{str(source_num)}-{quality.lower()}-download"]', download_dialog)
                     if source_num == 1 and quality == "HD":
                         downloaded_video_url = self.download_video_and_get_url(driver, download_button)
                     else:
@@ -121,7 +121,7 @@ class Course:
                     })
 
             # Close "Download" dialog box
-            await_clickable(By.CSS_SELECTOR, 'div[data-test-component="DownloadMedia"] button[aria-label="Close"]', driver).click()
+            self._await_clickable(By.CSS_SELECTOR, 'div[data-test-component="DownloadMedia"] button[aria-label="Close"]', driver).click()
 
             self.add_lecture(Lecture(
                 course=self,
@@ -148,6 +148,14 @@ class Course:
                         return url
             except Exception:
                 continue
+
+    def _await_clickable(self, by: str, value: str, driver, timeout: int = 2):
+        try:
+            return WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable((by, value))
+            )
+        except TimeoutException:
+            return None
 
 def login(driver: webdriver.Chrome, email=os.getenv("EMAIL"), region="echo360.org.au", password=os.getenv("PASSWORD"), login_url=LOGIN_ALTERNATE_URL):
     driver.get(login_url)
@@ -219,14 +227,6 @@ def get_courses(driver: webdriver.Chrome) -> list[Course]:
         ))
 
     return courses
-
-def await_clickable(by: str, value: str, driver, timeout: int = 2):
-    try:
-        return WebDriverWait(driver, timeout).until(
-            EC.element_to_be_clickable((by, value))
-        )
-    except TimeoutException:
-        return None
 
 def main():
     chrome_options = webdriver.ChromeOptions()
