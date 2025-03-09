@@ -13,13 +13,14 @@ from typing import Any
 from datetime import datetime
 
 BASE_URL = "https://echo360.net.au"
-MAIN_LOGIN_URL = "https://login.echo360.net.au/login"
-ALTERNATE_LOGIN_URL = f"{BASE_URL}/directLogin"
+LOGIN_MAIN_URL = "https://login.echo360.net.au/login"
+LOGIN_ALTERNATE_URL = f"{BASE_URL}/directLogin"
 COURSES_URL = f"{BASE_URL}/courses"
+CDN_BASE_URL = "https://content.echo360.net.au"
 
 dotenv.load_dotenv()
 
-def login(driver: webdriver.Chrome, email=os.getenv("EMAIL"), region="echo360.org.au", password=os.getenv("PASSWORD"), login_url=ALTERNATE_LOGIN_URL):
+def login(driver: webdriver.Chrome, email=os.getenv("EMAIL"), region="echo360.org.au", password=os.getenv("PASSWORD"), login_url=LOGIN_ALTERNATE_URL):
     driver.get(login_url)
 
     email_field = driver.find_element(By.NAME, "email")
@@ -98,6 +99,23 @@ def await_clickable(by: str, value: str, driver, timeout: int = 2):
     except TimeoutException:
         return None
 
+def download_video_and_get_url(driver: webdriver.Chrome, download_button) -> str:
+    driver.get_log("performance")
+
+    # Download video
+    download_button.click()
+
+    logs = driver.get_log("performance")
+    for entry in logs:
+        try:
+            log = json.loads(entry["message"])["message"]
+            if log["method"] == "Network.requestWillBeSent":
+                url = log["params"]["request"]["url"]
+                if CDN_BASE_URL in url:
+                    return url
+        except Exception:
+            continue
+
 def scrape_course(course_url: str, driver: webdriver.Chrome):
     driver.get(course_url)
     sessions = WebDriverWait(driver, 2).until(
@@ -124,32 +142,26 @@ def scrape_course(course_url: str, driver: webdriver.Chrome):
         # Click "Download Original"
         await_clickable(By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]', session).click()
 
-        # Click on Video 1 HD Download button (download video)
-        await_clickable(By.CSS_SELECTOR, 'button[data-test-id="video1-hd-download"]', driver).click()
+        # Wait for "Download" dialog box to load
+        download_dialog = await_clickable(By.ID, "download-tabs", driver)
 
-        dialog = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-test-component="DownloadMedia"]'))
-        )
+        download_button = await_clickable(By.CSS_SELECTOR, 'button[data-test-id="video1-hd-download"]', download_dialog)
+        downloaded_video_url = download_video_and_get_url(driver, download_button)
 
         video_sizes = []
-        sources = dialog.find_elements(By.CSS_SELECTOR, 'div[data-test-component="DownloadRow"]')
+        sources = download_dialog.find_elements(By.CSS_SELECTOR, 'div[data-test-component="DownloadRow"]')
         for source in sources:
             source_element = source.find_element(By.CSS_SELECTOR, 'div[data-test-component="PosterOverlay"]')
             source_num = int(source_element.text.strip()[-1])
 
             quality_options = source.find_elements(By.CSS_SELECTOR, 'div[data-test-component="DownloadFile"]')
             for option in quality_options:
-                button = option.find_element(By.TAG_NAME, "button")
-                quality = button.find_element(By.CSS_SELECTOR, 'span.sc-htoDjs').text
+                button_aria_label = option.find_element(By.TAG_NAME, "button").get_attribute("aria-label")
 
-                try:
-                    aria_label = button.get_attribute('aria-label')
-                    size_match = re.search(r'(\d+\.?\d*)\s?(MB|GB)', aria_label)
-                except:
-                    size_text = option.text
-                    size_match = re.search(r'\((\d+\.?\d*)(MB|GB)\)', size_text)
+                quality = "HD" if "Full Quality" in button_aria_label else "SD"
 
-                size = f"{size_match.group(1)} {size_match.group(2)}" if size_match else "Unknown"
+                size_match = re.search(r'(\d+\.?\d*)\s?(MB|GB)', button_aria_label)
+                size = f"{size_match.group(1)} {size_match.group(2)}"
 
                 video_sizes.append({
                     "video_source_num": source_num,
@@ -166,14 +178,17 @@ def scrape_course(course_url: str, driver: webdriver.Chrome):
             "start_time": start_time,
             "end_time": end_time,
             "video_sizes": video_sizes,
+            "downloaded_video_url": downloaded_video_url,
         })
 
     return lecture_data
 
 def main():
-    options = webdriver.ChromeOptions()
-    options.enable_downloads = True
-    driver = webdriver.Chrome()
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.enable_downloads = True
+    chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
+
+    driver = webdriver.Chrome(chrome_options)
 
     login(driver)
     courses = get_courses(driver)
