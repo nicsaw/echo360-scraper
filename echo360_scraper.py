@@ -25,13 +25,23 @@ dotenv.load_dotenv()
 
 class Video:
     def __init__(self, source_num: int, quality: str, size: str, url: str = None):
-        # self.lecture = lecture
+        self._lecture = None
         self.source_num = source_num
         self.quality = quality
         self.size = size
         self.url = url
         self.file_path = None
         self._sha256 = None
+
+    @property
+    def lecture(self):
+        return self._lecture
+
+    @lecture.setter
+    def lecture(self, lecture: "Lecture"):
+        if self._lecture is not None:
+            raise ValueError(f"Video already belongs to lecture: {self._lecture}")
+        self._lecture = lecture
 
     @property
     def sha256(self) -> str:
@@ -67,6 +77,8 @@ class Lecture:
         self.end_time = end_time
         self.lecture_num = lecture_num
         self.videos = videos
+        for video in self.videos:
+            video.lecture = self
 
     def generate_video_filename(self, extension: str = "mp4") -> str:
         course_codes = '-'.join(self.course.course_codes)
