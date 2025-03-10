@@ -55,13 +55,14 @@ class Video:
         date_and_time = f"{date_formatted}-{time_formatted}"
         return f"{course_codes}_Lecture-{self.lecture.lecture_num}_{date_and_time}_Source-{self.source_num}_Quality-{self.quality}.{extension}"
 
-    def calculate_sha256_hash(self, file_path: str):
+    def calculate_sha256_hash(self, file_path: str) -> str:
         self.file_path = file_path
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(chunk)
         self._sha256 = sha256_hash.hexdigest()
+        return self._sha256
 
     def to_dict(self) -> dict:
         return {
@@ -86,6 +87,9 @@ class Lecture:
         self.videos = videos
         for video in self.videos:
             video.lecture = self
+
+    def add_video(self, video: Video):
+        self.videos.append(video)
 
     def to_dict(self) -> dict:
         return {
@@ -143,6 +147,7 @@ class Course:
             start_time = datetime.strptime(start_time_str, "%I:%M%p").time()
             end_time = datetime.strptime(end_time_str, "%I:%M%p").time()
 
+            # Open video menu
             try:
                 self._await_clickable(By.CSS_SELECTOR, 'div.courseMediaIndicator[data-test-id="open-class-video-menu"]', row, 0).click()
             except AttributeError:
