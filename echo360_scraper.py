@@ -20,7 +20,7 @@ LOGIN_ALTERNATE_URL = f"{BASE_URL}/directLogin"
 COURSES_URL = f"{BASE_URL}/courses"
 CDN_BASE_URL = "https://content.echo360.net.au"
 DOWNLOADS_FOLDER_NAME = "downloads"
-TARGET_COURSE_CODES = ["COMP6443"]
+TARGET_COURSE_CODES = ["COMP4337"]
 
 dotenv.load_dotenv()
 
@@ -87,13 +87,6 @@ class Lecture:
         for video in self.videos:
             video.lecture = self
 
-    # def generate_video_filename(self, extension: str = "mp4") -> str:
-    #     course_codes = '-'.join(self.course.course_codes)
-    #     date_formatted = f"{self.date.year}-{self.date.month}-{self.date.day}"
-    #     time_formatted = f"{self.start_time.hour}-{self.start_time.minute}"
-    #     date_and_time = f"{date_formatted}-{time_formatted}"
-    #     return f"{course_codes}_Lecture-{self.lecture_num}_{date_and_time}.{extension}"
-
     def to_dict(self) -> dict:
         return {
             "course": self.course,
@@ -134,16 +127,16 @@ class Course:
             "lectures": [v.to_dict() for v in self.lectures]
         }
 
-    def scrape_course(self, driver: webdriver.Chrome):
+    def scrape_course(self, driver: webdriver.Chrome, start_index: int = 0):
         driver.get(self.url)
-        sessions = WebDriverWait(driver, 2).until(
+        lecture_rows = WebDriverWait(driver, 2).until(
             EC.presence_of_all_elements_located((By.CLASS_NAME, "class-row"))
         )
 
-        for session in sessions:
-            title = session.find_element(By.CSS_SELECTOR, 'div[role="title"].title').text.strip()
-            date_str = session.find_element(By.CLASS_NAME, "date").text.strip()
-            time_str = session.find_element(By.CLASS_NAME, "time").text.strip()
+        for row in lecture_rows[start_index:]:
+            title = row.find_element(By.CSS_SELECTOR, 'div[role="title"].title').text.strip()
+            date_str = row.find_element(By.CLASS_NAME, "date").text.strip()
+            time_str = row.find_element(By.CLASS_NAME, "time").text.strip()
 
             date_obj = datetime.strptime(date_str, "%B %d, %Y").date()
             start_time_str, end_time_str = time_str.split("-")
@@ -151,12 +144,12 @@ class Course:
             end_time = datetime.strptime(end_time_str, "%I:%M%p").time()
 
             try:
-                self._await_clickable(By.CSS_SELECTOR, 'div.courseMediaIndicator[data-test-id="open-class-video-menu"]', session).click()
+                self._await_clickable(By.CSS_SELECTOR, 'div.courseMediaIndicator[data-test-id="open-class-video-menu"]', row).click()
             except AttributeError:
                 continue
 
             # Click download original
-            self._await_clickable(By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]', session).click()
+            self._await_clickable(By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]', row).click()
 
             # Wait for "Download" dialog box to load
             download_dialog = self._await_clickable(By.ID, "download-tabs", driver)
@@ -318,30 +311,31 @@ def download_video(video: Video, filename: str):
     video.calculate_sha256_hash(file_path)
 
 def main():
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.enable_downloads = True
-    chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
-    chrome_options.add_experimental_option("prefs", {
-        "download.default_directory": os.path.abspath("chrome_downloads"),
-        "download.prompt_for_download": False,
-        "download.directory_upgrade": True,
-        "safebrowsing.enabled": True
-    })
+    try:
+        chrome_options = webdriver.ChromeOptions()
+        chrome_options.enable_downloads = True
+        chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
+        chrome_options.add_experimental_option("prefs", {
+            "download.default_directory": os.path.abspath("chrome_downloads"),
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "safebrowsing.enabled": True
+        })
 
-    driver = webdriver.Chrome(chrome_options)
+        driver = webdriver.Chrome(chrome_options)
 
-    login(driver)
-    courses = get_courses(driver)
+        login(driver)
+        courses = get_courses(driver)
 
-    target_courses: list[Course] = []
-    for course in courses:
-        if any(code in course.course_codes for code in TARGET_COURSE_CODES):
-            target_courses.append(course)
+        target_courses: list[Course] = []
+        for course in courses:
+            if any(code in course.course_codes for code in TARGET_COURSE_CODES):
+                target_courses.append(course)
 
-    for target_course in target_courses:
-        target_course.scrape_course(driver)
-
-    driver.quit()
+        for target_course in target_courses:
+            target_course.scrape_course(driver)
+    finally:
+        driver.quit()
 
     for target_course in target_courses:
         for lecture in target_course.lectures:
