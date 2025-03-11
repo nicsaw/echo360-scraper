@@ -21,6 +21,7 @@ COURSES_URL = f"{BASE_URL}/courses"
 CDN_BASE_URL = "https://content.echo360.net.au"
 DOWNLOADS_FOLDER_NAME = "downloads"
 TARGET_COURSE_CODES = ["COMP6843"]
+START_INDEX = 0
 
 dotenv.load_dotenv()
 
@@ -131,7 +132,7 @@ class Course:
             "lectures": [v.to_dict() for v in self.lectures]
         }
 
-    def scrape_course(self, driver: webdriver.Chrome, start_index: int = 0):
+    def scrape_course(self, driver: webdriver.Chrome, start_index: int = START_INDEX):
         driver.get(self.url)
         lecture_rows = WebDriverWait(driver, 2).until(
             EC.presence_of_all_elements_located((By.CLASS_NAME, "class-row"))
