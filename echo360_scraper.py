@@ -20,8 +20,11 @@ LOGIN_ALTERNATE_URL = f"{BASE_URL}/directLogin"
 COURSES_URL = f"{BASE_URL}/courses"
 CDN_BASE_URL = "https://content.echo360.net.au"
 DOWNLOADS_FOLDER_NAME = "downloads"
-TARGET_COURSE_CODES = ["COMP6443", "COMP6448"]
+TARGET_COURSE_CODES = ["COMP6843"]
+SOURCE_NUM = 1
 START_INDEX = 0
+
+assert SOURCE_NUM in {1, 2}
 
 dotenv.load_dotenv()
 
@@ -176,7 +179,7 @@ class Course:
                     size = f"{size_match.group(1)} {size_match.group(2)}"
 
                     download_button = self._await_clickable(By.CSS_SELECTOR, f'button[data-test-id="video{str(source_num)}-{quality.lower()}-download"]', download_dialog)
-                    downloaded_video_url = self.download_video_and_get_url(driver, download_button) if source_num == 1 and quality == "HD" else None
+                    downloaded_video_url = self.download_video_and_get_url(driver, download_button) if source_num == SOURCE_NUM and quality == "HD" else None
 
                     videos.append(Video(
                         source_num=source_num,
