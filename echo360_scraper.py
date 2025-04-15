@@ -20,7 +20,7 @@ LOGIN_ALTERNATE_URL = f"{BASE_URL}/directLogin"
 COURSES_URL = f"{BASE_URL}/courses"
 CDN_BASE_URL = "https://content.echo360.net.au"
 DOWNLOADS_FOLDER_NAME = "downloads"
-TARGET_COURSE_CODES = ["COMP6843"]
+TARGET_COURSE_CODES = ["COMP6443", "COMP6448"]
 START_INDEX = 0
 
 dotenv.load_dotenv()
@@ -148,14 +148,14 @@ class Course:
             start_time = datetime.strptime(start_time_str, "%I:%M%p").time()
             end_time = datetime.strptime(end_time_str, "%I:%M%p").time()
 
-            # Open video menu
             try:
+                # Open video menu
                 self._await_clickable(By.CSS_SELECTOR, 'div.courseMediaIndicator[data-test-id="open-class-video-menu"]', row, 0).click()
+
+                # Click download original
+                self._await_clickable(By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]', row).click()
             except AttributeError:
                 continue
-
-            # Click download original
-            self._await_clickable(By.CSS_SELECTOR, 'a[data-test-id="download-class-media"]', row).click()
 
             # Wait for "Download" dialog box to load
             download_dialog = self._await_clickable(By.ID, "download-tabs", driver)
